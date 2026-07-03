@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "page-repair-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TOKENS",
+      "id": "e0a7eec658d646a194dee95a393d8f78"
+    }
+  ],
+  "vars": {
+    // Haiku is the paid-tier default: labeling a control from its HTML
+    // context is well within its ability, it is the fastest option, and it
+    // keeps the ~$0.01/page economics the pricing plan is built on.
+    // Set to "claude-opus-4-8" for maximum label quality.
+    "MODEL": "claude-haiku-4-5",
+    // Credits granted when /admin/tokens is called without ?credits=N.
+    // 1 credit = 1 labeling request (one page repair, up to 40 controls).
+    "DEFAULT_STARTING_CREDITS": "25"
+  }
+  // Secrets (set with `wrangler secret put <NAME>`):
+  //   ANTHROPIC_API_KEY  — the server-held key all paid traffic uses
+  //   ADMIN_SECRET       — authorizes POST /admin/tokens
+  //   STRIPE_WEBHOOK_SECRET (later) — verifies Stripe event signatures
+}

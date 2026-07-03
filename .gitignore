@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# Secrets — never commit (defensive; proxy/.gitignore also covers these)
+**/.dev.vars
+**/.admin-secret
+**/.tester-tokens
+**/.wrangler/
+**/worker-configuration.d.ts
+
+# Downloaded page fixtures — large, reproducible via test/README, and third-party
+# HTML. The crafted fixture (synthetic-broken.html) IS committed.
+fixtures/hackernews.html
+fixtures/craigslist.html
+fixtures/wikipedia.html
+
+# OS
+.DS_Store

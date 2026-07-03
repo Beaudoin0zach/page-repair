@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Page Repair (prototype)",
+  "version": "0.1.0",
+  "description": "User-invoked page repair for screen reader users: fixes unlabeled controls, broken heading structure, and missing landmarks via ARIA patches. Never auto-runs, never moves focus, never speaks uninvited.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://api.anthropic.com/*", "https://*.workers.dev/*"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_title": "Repair this page (Alt+Shift+R)"
+  },
+  "commands": {
+    "repair-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Repair the current page for screen reader navigation"
+    }
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  }
+}
