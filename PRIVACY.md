@@ -1,6 +1,6 @@
 # Page Repair — Privacy Policy
 
-_Last updated: 2026-07-08_
+_Last updated: 2026-07-13_
 
 Page Repair is a browser extension that repairs the page you are currently
 viewing for screen reader users. This policy explains exactly what it does and
@@ -24,9 +24,10 @@ https://github.com/Beaudoin0zach/page-repair.
 The extension keeps a small amount of configuration in `chrome.storage.local`
 (local to your browser, never synced by us):
 
-- Your personal Anthropic API key, **or** your subscription credit token —
+- Your personal Anthropic API key, **or** your prepaid credit token —
   whichever labeling mode you choose.
-- Your model preference and (optionally) a custom proxy URL.
+- Your model preference, and the last credit balance the service reported
+  (so the options page can show it without a network request).
 
 These never leave your device except to authenticate the labeling request you
 explicitly triggered.
@@ -38,11 +39,16 @@ contains unlabeled controls that need model labeling. In that case the
 extension sends, for each unlabeled control:
 
 - a CSS selector for the control,
-- a small snippet of the control's surrounding HTML (its local context),
-- the page title and page URL.
+- a small snippet of the control's own HTML (up to 300 characters) and up to
+  200 characters of the visible text immediately around it — that nearby text
+  is page content, and on pages showing personal information it can include
+  fragments of it, which is why nothing is ever sent until you invoke a
+  repair on that page,
+- the page title and page address (with query strings and fragments removed,
+  since those often carry tokens or personal data).
 
-It does **not** send the full page, its text content, form values, cookies,
-your browsing history, or anything from other tabs.
+It does **not** send the full page, form values, cookies, your browsing
+history, or anything from other tabs.
 
 ### Two labeling modes
 
@@ -51,14 +57,18 @@ your browsing history, or anything from other tabs.
    (`api.anthropic.com`). It never touches our servers. That request is
    governed by your own agreement with Anthropic.
 
-2. **Subscription (credit token).** If you use a subscription token instead,
-   the request goes to our proxy (`*.workers.dev`), which forwards it to
-   Anthropic using a server-held key and deducts one credit. The proxy:
+2. **Prepaid credits (credit token).** If you use a credit token instead,
+   the request goes to our proxy
+   (`page-repair-proxy.airboat-webcast-5u.workers.dev`), which forwards it
+   to Anthropic using a server-held key and deducts one credit. The proxy:
    - stores only a **SHA-256 hash** of your token plus a remaining-credit
      count — never the token itself and never page content;
    - logs only aggregate counts (number of controls, model token usage,
      credits remaining) for operating the service — **not** the page URL,
      HTML, or generated labels.
+
+   The options page's "Test token" button and credit readout call the same
+   proxy with your token; they send no page data.
 
 In both modes, prompts sent to the Anthropic API are handled under Anthropic's
 terms; Anthropic does not train its models on API traffic by default. See

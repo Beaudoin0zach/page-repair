@@ -39,12 +39,22 @@ the closest prior art. Key evidence:
    ambiguous unlabeled controls go to the model — just their local HTML
    context, never the full page.
 4. **Confidence-gated labels with provenance.** High-confidence labels apply
-   as-is; medium-confidence labels are marked "(auto-labeled, unverified)";
-   low-confidence guesses are discarded. A wrong label is worse than none.
+   as-is; medium-confidence labels carry an "auto-labeled, unverified" note
+   in `aria-description` — after the name, so braille displays and
+   voice-control name matching stay clean; low-confidence guesses are
+   discarded. A wrong label is worse than none.
 5. **Never speak uninvited, never move focus.** One polite live region
-   announces results only right after the user invoked the repair.
-6. **Survives re-renders.** A MutationObserver re-applies patches when SPA
-   frameworks clobber them.
+   announces what was *actually applied* — never a fix that silently failed
+   — only right after the user invoked the repair.
+6. **Reversible.** Every patch records the attribute values it replaced;
+   Alt+Shift+U restores the original page. If an SPA re-render wipes a
+   patch, re-invoking repair is the recovery path — the extension never
+   fights the page for its own attributes.
+7. **Report, never contact.** A command copies a plain-language audit report
+   (WCAG references, heuristic disclaimer) to the clipboard for the *user*
+   to send. Automated complaints would poison the reporting channel and
+   disclose the user's disability status without their say — so that
+   feature is deliberately absent.
 
 ## Measured (see `test/latency.mjs`)
 
@@ -63,30 +73,21 @@ tokens than full-page regeneration).
 1. `chrome://extensions` → Developer mode → Load unpacked → this folder.
 2. Options page → configure labeling (only needed for unnamed controls;
    heading/landmark repair works with no configuration at all):
-   - **Option A — your own API key.** Calls go straight from the browser to
-     Anthropic; auditable, nothing passes through our servers.
-   - **Option B — subscription token.** Routes through the metered proxy in
-     [`proxy/`](proxy/README.md); no Anthropic account needed. Personal key
-     wins if both are set.
-3. On any page: press Alt+Shift+R or click the toolbar button.
+   - **Prepaid credits.** A credit token routes labeling through the metered
+     proxy in [`proxy/`](proxy/README.md); no Anthropic account needed.
+   - **Your own API key.** Calls go straight from the browser to Anthropic;
+     auditable, nothing passes through our servers. Wins if both are set.
+3. On any page: press Alt+Shift+R or click the toolbar button. Alt+Shift+U
+   undoes all repairs; a third command (unbound by default — see the options
+   page) copies an accessibility report to the clipboard.
 
-Test harness: `npm install`, then `node test/latency.mjs` (audit only) or
-`node test/latency.mjs --llm` (adds model labeling; uses `ANTHROPIC_API_KEY`
-or falls back to the `claude` CLI).
+Tests: `npm install`, then `npm test` (unit: selector round-trip invariant,
+heading repair, accessible names, apply/undo) and `node test/latency.mjs`
+(audit timings; `--llm` adds one live labeling call with `ANTHROPIC_API_KEY`).
+Fixture regeneration: [`test/README.md`](test/README.md).
 
-## Next (in rough priority order, all grounded in the ASSETS 2025 findings)
+## Next
 
-- **Summary headings** — inject a heading over control clusters ("Purchase
-  options", "Filter results"). The single most-praised feature in their
-  study, achievable without regeneration.
-- **Junk-heading demotion** — category/filter lists marked as headings are
-  the #1 formative complaint; needs light LLM judgment.
-- **Reading-order repair** — the piece tag-only fixes couldn't deliver in
-  their study; explore `aria-owns`/careful DOM moves as the non-destructive
-  middle path they never tested.
-- **Per-site fix caching** — template fingerprinting so a page repaired once
-  re-applies instantly on every visit.
-- **Per-fix review/revert UI** and an accessible settings surface.
 - **Participatory design** — recruit blind co-designers (NVDA/JAWS users
   first: ~78% of primary desktop use) before building further. Nothing about
-  us without us.
+  us without us. Everything else waits on what testers say.

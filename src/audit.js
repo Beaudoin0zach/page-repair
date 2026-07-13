@@ -2,7 +2,7 @@
  * Audit engine — read-only. Finds the three problem classes this prototype
  * targets (all from WebAIM's top-ten list):
  *   1. Controls with no accessible name (buttons, links, inputs)
- *   2. Broken heading structure (level skips, missing h1)
+ *   2. Broken heading structure (level skips)
  *   3. Missing landmarks (main)
  *
  * Every issue carries either a deterministic fix (computable from the DOM
@@ -28,17 +28,25 @@ const PageRepairAudit = (() => {
       if (text) return text;
     }
 
-    if (el.tagName === 'INPUT') {
-      const type = (el.getAttribute('type') || 'text').toLowerCase();
-      if (['submit', 'button', 'reset'].includes(type) && el.getAttribute('value')) {
-        return el.getAttribute('value').trim();
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      if (tag === 'INPUT') {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (['submit', 'button', 'reset'].includes(type) && el.getAttribute('value')) {
+          return el.getAttribute('value').trim();
+        }
       }
+      // <label for>/wrapping <label> name any form control, not just <input>.
       if (el.id) {
         const label = doc.querySelector(`label[for="${CSS_escape(el.id)}"]`);
         if (label && label.textContent.trim()) return label.textContent.trim();
       }
       const wrapping = el.closest('label');
       if (wrapping && wrapping.textContent.trim()) return wrapping.textContent.trim();
+      // Browsers fall back to placeholder as the accessible name — a control
+      // with one is not unnamed, and an LLM aria-label would override it.
+      const placeholder = el.getAttribute('placeholder');
+      if (placeholder && placeholder.trim()) return placeholder.trim();
     }
 
     const text = (el.textContent || '').trim();
@@ -61,16 +69,34 @@ const PageRepairAudit = (() => {
     return s.replace(/([^a-zA-Z0-9_-])/g, '\\$1');
   }
 
-  // Stable-enough selector for re-finding the element after re-renders.
+  // Unique selector for re-finding the element. Anchors at the nearest
+  // id-bearing ancestor (or <body>) and disambiguates every level with
+  // :nth-of-type, so the resulting child-combinator chain matches exactly
+  // the audited element — patches must never land on a lookalike.
+
+  // Real pages reuse ids (invalid but common — craigslist does it), and
+  // querySelector resolves a duplicated #id to the FIRST match. Only anchor
+  // on an id if this node is that first match.
+  function idAnchors(node) {
+    try {
+      return node.ownerDocument.querySelector(`#${CSS_escape(node.id)}`) === node;
+    } catch {
+      return false;
+    }
+  }
+
   function selectorFor(el) {
-    if (el.id) return `#${CSS_escape(el.id)}`;
+    if (el.id && idAnchors(el)) return `#${CSS_escape(el.id)}`;
     const parts = [];
     let node = el;
-    while (node && node.nodeType === 1 && parts.length < 6) {
-      let part = node.tagName.toLowerCase();
-      if (node.id) {
-        parts.unshift(`#${CSS_escape(node.id)} > ${part}`.replace(` > ${part}`, ''));
+    while (node && node.nodeType === 1) {
+      if (node.id && idAnchors(node)) {
         parts.unshift(`#${CSS_escape(node.id)}`);
+        break;
+      }
+      let part = node.tagName.toLowerCase();
+      if (part === 'body' || part === 'html') {
+        parts.unshift(part);
         break;
       }
       const parent = node.parentElement;
@@ -155,27 +181,49 @@ const PageRepairAudit = (() => {
       .map((el) => ({
         el,
         selector: selectorFor(el),
+        // Effective level: aria-level wins over the tag so a page's own
+        // overrides — and our previous repair — are respected. This makes
+        // re-invocation idempotent instead of re-announcing phantom fixes.
         level:
-          el.tagName[0] === 'H'
-            ? Number(el.tagName[1])
-            : Number(el.getAttribute('aria-level')) || 2,
+          Number(el.getAttribute('aria-level')) ||
+          (el.tagName[0] === 'H' && el.tagName.length === 2 ? Number(el.tagName[1]) : 2),
         text: (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
       }));
 
     if (headings.length === 0) return issues;
 
-    // Repair plan: walk the outline; a jump of more than one level down gets
-    // clamped to previous+1. Uses aria-level so the visual style is untouched.
-    let prev = 0;
+    // Repair plan: clamp downward jumps of more than one level, keeping
+    // same-level sibling runs at the same repaired level (h1,h3,h3 must
+    // become 1,2,2 — not 1,2,3). The first heading is never promoted: we
+    // can't know it's the page title, and crowning a cookie banner or
+    // sidebar heading as h1 corrupts the outline worse than a missing h1.
+    // Uses aria-level so the visual style is untouched.
+    let prevOrig = 0;
+    let prevTarget = 0;
+    const assigned = new Map(); // original level -> repaired level in the current branch
     const repairs = [];
     for (const h of headings) {
-      let target = h.level;
-      if (prev === 0 && h.level !== 1) target = 1;
-      else if (h.level > prev + 1) target = prev + 1;
+      let target;
+      if (prevOrig === 0) {
+        target = h.level;
+      } else if (h.level === prevOrig) {
+        target = prevTarget;
+      } else if (h.level > prevOrig) {
+        target = Math.min(h.level, prevTarget + 1);
+      } else {
+        // Moving back up: rejoin the level this depth mapped to before,
+        // and forget deeper mappings — they belonged to the closed branch.
+        target = assigned.has(h.level) ? assigned.get(h.level) : Math.min(h.level, prevTarget);
+        for (const k of [...assigned.keys()]) {
+          if (k > h.level) assigned.delete(k);
+        }
+      }
+      assigned.set(h.level, target);
       if (target !== h.level) {
         repairs.push({ selector: h.selector, from: h.level, to: target, text: h.text });
       }
-      prev = target;
+      prevOrig = h.level;
+      prevTarget = target;
     }
     if (repairs.length > 0) {
       issues.push({ kind: 'heading-structure', repairs, needsLlm: false });
@@ -222,7 +270,7 @@ const PageRepairAudit = (() => {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
   }
 
-  return { run, accessibleName, selectorFor };
+  return { run, selectorFor };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -1,18 +1,14 @@
 {
   "name": "page-repair",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
+  "description": "Dev harness for the Page Repair extension (tests + latency measurement)",
+  "private": true,
   "license": "ISC",
   "type": "commonjs",
+  "scripts": {
+    "test": "node test/unit.mjs",
+    "latency": "node test/latency.mjs"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "linkedom": "^0.18.12"

@@ -43,12 +43,19 @@ What makes it different from an accessibility "overlay":
   in milliseconds. Only genuinely ambiguous unlabeled controls are sent for
   labeling, and only a small slice of surrounding HTML — never the whole page.
 • Honest about uncertainty. High-confidence labels are applied; medium-
-  confidence ones are marked "(auto-labeled, unverified)"; low-confidence
-  guesses are discarded. A wrong label is worse than none.
+  confidence ones carry a separate "auto-labeled, unverified" note (announced
+  after the label, kept out of the name itself so braille and voice control
+  keep working); low-confidence guesses are discarded. A wrong label is worse
+  than none.
 • Never speaks uninvited and never moves your focus. One polite announcement
-  tells you the result, only right after you invoked the repair.
+  tells you what was actually fixed, only right after you invoked the repair.
+• Fully reversible. Alt+Shift+U removes every repair and restores the page's
+  original attributes.
+• Helps you tell the site. A command copies a plain-language accessibility
+  report (with WCAG references) to your clipboard for you to send — the
+  extension never contacts anyone on your behalf.
 
-Labeling requires either your own Anthropic API key or a subscription credit
+Labeling requires either your own Anthropic API key or a prepaid credit
 token — you choose in the options page. See the privacy policy for exactly what
 data is sent and when.
 
@@ -66,13 +73,18 @@ heading structure, and adding missing landmarks.
   asked.
 - **scripting** — Injects the audit-and-repair scripts into the current page
   when the user invokes a repair.
-- **storage** — Saves the user's own settings locally (API key or subscription
-  token, model choice, optional proxy URL). Never synced by us.
+- **storage** — Saves the user's own settings locally (API key or credit
+  token, model choice). Never synced by us.
+- **notifications** — Used only to say "Page Repair can't run on this page"
+  when the user invokes it somewhere extensions can't inject (browser pages,
+  the Web Store, PDFs) — the in-page announcement channel doesn't exist there,
+  and silence would be indistinguishable from the extension being broken.
 - **Host permission `https://api.anthropic.com/*`** — In bring-your-own-key
   mode, the extension calls the Anthropic API directly to label controls.
-- **Host permission `https://*.workers.dev/*`** — In subscription mode, the
-  extension calls the Page Repair proxy, which meters credits and forwards the
-  request to Anthropic.
+- **Host permission `https://page-repair-proxy.airboat-webcast-5u.workers.dev/*`**
+  — In prepaid-credits mode, the extension calls the Page Repair proxy (this
+  exact origin only), which meters credits and forwards the request to
+  Anthropic.
 
 ## Remote code
 No remotely hosted code. All executable code is packaged in the extension. The

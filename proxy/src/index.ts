@@ -12,11 +12,10 @@
  * Endpoints:
  *   POST /v1/label        — label unnamed controls (Bearer customer token);
  *                           spends 1 credit
+ *   GET  /v1/balance      — remaining credits (Bearer customer token); free
  *   POST /admin/tokens    — mint a customer token with a starting balance
  *                           (Bearer ADMIN_SECRET)
  *   POST /admin/credits   — top up an existing token (Bearer ADMIN_SECRET)
- *   POST /webhooks/stripe — stub; will credit balances on one-time
- *                           payments once Stripe is wired up
  *
  * Storage (KV):
  *   token:<sha256(token)>   -> TokenRecord JSON
@@ -44,6 +43,37 @@ interface LabelRequestBody {
 const MAX_CONTROLS_PER_REQUEST = 40;
 const MAX_BODY_BYTES = 256 * 1024;
 
+// The context object is untrusted client input that goes straight into the
+// prompt. Whitelist its fields and cap each one to the same budgets the
+// extension's audit uses, so a hostile client can't inflate token spend.
+const CONTEXT_FIELD_CAPS: Record<string, number> = {
+  tag: 20,
+  classes: 120,
+  href: 300,
+  type: 30,
+  name: 100,
+  placeholder: 200,
+  innerHtml: 300,
+  nearbyText: 200,
+};
+
+function sanitizeContext(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const src = raw as Record<string, unknown>;
+  const clean: Record<string, unknown> = {};
+  for (const [field, cap] of Object.entries(CONTEXT_FIELD_CAPS)) {
+    if (typeof src[field] === 'string') clean[field] = (src[field] as string).slice(0, cap);
+  }
+  if (typeof src.dataAttrs === 'object' && src.dataAttrs !== null) {
+    const dataAttrs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(src.dataAttrs as Record<string, unknown>).slice(0, 5)) {
+      dataAttrs[k.slice(0, 60)] = String(v).slice(0, 60);
+    }
+    clean.dataAttrs = dataAttrs;
+  }
+  return clean;
+}
+
 const LABEL_SCHEMA = {
   type: 'object',
   properties: {
@@ -67,7 +97,7 @@ const LABEL_SCHEMA = {
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
 };
 
@@ -128,12 +158,14 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
   const record = await env.TOKENS.get<TokenRecord>(`token:${tokenHash}`, 'json');
   if (!record || record.disabled) return json({ error: 'Invalid or disabled token' }, 403);
 
-  const length = Number(request.headers.get('Content-Length') || '0');
-  if (length > MAX_BODY_BYTES) return json({ error: 'Request too large' }, 413);
+  // Cap on the actual bytes, not the Content-Length header — chunked
+  // requests carry no Content-Length and would bypass a header-only check.
+  const rawBody = await request.text();
+  if (rawBody.length > MAX_BODY_BYTES) return json({ error: 'Request too large' }, 413);
 
   let body: LabelRequestBody;
   try {
-    body = await request.json<LabelRequestBody>();
+    body = JSON.parse(rawBody) as LabelRequestBody;
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
   }
@@ -141,17 +173,23 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
     return json({ error: 'issues[] required' }, 400);
   }
 
-  // Balance check (KV is eventually consistent — a racing pair of requests
-  // can occasionally spend one credit twice, which errs in the customer's
-  // favor; move to D1 if hard enforcement ever matters).
+  // Spend the credit up front and refund on upstream failure. KV has no
+  // atomic decrement, so concurrent requests can still race — but the race
+  // window is now one KV round-trip instead of a whole Anthropic call,
+  // which turns "fire 200 in parallel on 1 credit" from a working drain
+  // into a lottery. Hard enforcement needs D1 or a Durable Object.
   const credits = await getCredits(env, tokenHash);
   if (credits <= 0) {
     return json({ error: 'Out of credits', credits: 0 }, 402);
   }
+  const remaining = credits - 1;
+  await env.TOKENS.put(`credits:${tokenHash}`, String(remaining));
+  const refund = () =>
+    env.TOKENS.put(`credits:${tokenHash}`, String(remaining + 1)).catch(() => {});
 
   const issues = body.issues.slice(0, MAX_CONTROLS_PER_REQUEST).map((i) => ({
     selector: String(i.selector).slice(0, 500),
-    context: i.context,
+    context: sanitizeContext(i.context),
   }));
   const prompt = buildPrompt(
     issues,
@@ -159,22 +197,30 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
     String(body.pageUrl || '').slice(0, 500)
   );
 
-  const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: env.MODEL,
-      max_tokens: 4096,
-      output_config: { format: { type: 'json_schema', schema: LABEL_SCHEMA } },
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  let apiRes: Response;
+  try {
+    apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: env.MODEL,
+        max_tokens: 4096,
+        output_config: { format: { type: 'json_schema', schema: LABEL_SCHEMA } },
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+  } catch (e) {
+    ctx.waitUntil(refund());
+    console.log(JSON.stringify({ event: 'anthropic_unreachable', message: String(e) }));
+    return json({ error: 'Labeling service temporarily unavailable' }, 502);
+  }
 
   if (!apiRes.ok) {
+    ctx.waitUntil(refund());
     const detail = (await apiRes.text()).slice(0, 300);
     console.log(JSON.stringify({ event: 'anthropic_error', status: apiRes.status, detail }));
     // Don't leak upstream details to the client beyond the status class.
@@ -188,6 +234,7 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
   }
   const data = await apiRes.json<AnthropicResponse>();
   if (data.stop_reason === 'refusal') {
+    ctx.waitUntil(refund());
     return json({ error: 'Model declined the request' }, 502);
   }
 
@@ -196,11 +243,10 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
   try {
     labels = (JSON.parse(text) as { labels?: unknown }).labels ?? [];
   } catch {
+    ctx.waitUntil(refund());
     return json({ error: 'Malformed model output' }, 502);
   }
 
-  const remaining = credits - 1;
-  ctx.waitUntil(env.TOKENS.put(`credits:${tokenHash}`, String(remaining)));
   console.log(
     JSON.stringify({
       event: 'label',
@@ -211,6 +257,17 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
   );
 
   return json({ labels, credits: remaining });
+}
+
+// Free balance check so the extension's options page can show credits (and
+// validate a token) without spending one.
+async function handleBalance(request: Request, env: Env): Promise<Response> {
+  const token = bearerToken(request);
+  if (!token) return json({ error: 'Missing bearer token' }, 401);
+  const tokenHash = await sha256Hex(token);
+  const record = await env.TOKENS.get<TokenRecord>(`token:${tokenHash}`, 'json');
+  if (!record || record.disabled) return json({ error: 'Invalid or disabled token' }, 403);
+  return json({ credits: await getCredits(env, tokenHash) });
 }
 
 async function requireAdmin(request: Request, env: Env): Promise<Response | null> {
@@ -285,22 +342,14 @@ export default {
       if (request.method === 'POST' && url.pathname === '/v1/label') {
         return await handleLabel(request, env, ctx);
       }
+      if (request.method === 'GET' && url.pathname === '/v1/balance') {
+        return await handleBalance(request, env);
+      }
       if (request.method === 'POST' && url.pathname === '/admin/tokens') {
         return await handleCreateToken(request, env);
       }
       if (request.method === 'POST' && url.pathname === '/admin/credits') {
         return await handleAddCredits(request, env);
-      }
-      if (request.method === 'POST' && url.pathname === '/webhooks/stripe') {
-        // Stub until there are real users. One-time payments only — no
-        // subscription lifecycle. The wiring will be:
-        //   1. Verify the Stripe-Signature header with STRIPE_WEBHOOK_SECRET.
-        //   2. checkout.session.completed:
-        //      - new customer (no token in metadata) -> mint token with the
-        //        purchased credits, deliver it on the success page/email
-        //      - top-up (token in checkout metadata)  -> add credits, same
-        //        path as /admin/credits
-        return json({ error: 'Stripe integration not yet enabled' }, 501);
       }
       return json({ error: 'Not found' }, 404);
     } catch (e) {

@@ -5,79 +5,70 @@
  *     never touch event handlers. Site JavaScript keeps working.
  *   - Never move focus. Never scroll. Never speak except through one polite
  *     live region, and only immediately after the user invoked the repair.
- *   - Patches must survive SPA re-renders: a MutationObserver re-applies any
- *     patch whose target gets replaced or whose attribute gets clobbered.
+ *   - Every patch records the attribute values it replaced, so the user can
+ *     undo all repairs and get the original page back. If a re-render wipes
+ *     a patch, re-invoking repair is the recovery path — we never fight the
+ *     page for control of its own attributes.
  */
 
 const PageRepairApply = (() => {
-  // selector -> { attrs: {name: value} }
+  // selector -> { attrs, originals } — originals hold the pre-patch value
+  // of each attribute (null if it was absent) for undo.
   const registry = new Map();
-  let observer = null;
-
-  function setAttrs(el, attrs) {
-    for (const [name, value] of Object.entries(attrs)) {
-      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
-    }
-    el.setAttribute('data-page-repair', '1');
-  }
 
   function applyOne(patch) {
     const el = document.querySelector(patch.selector);
     if (!el) return false;
-    setAttrs(el, patch.attrs);
-    registry.set(patch.selector, patch);
+    const existing = registry.get(patch.selector);
+    const originals = existing ? existing.originals : {};
+    for (const [name, value] of Object.entries(patch.attrs)) {
+      if (!(name in originals)) originals[name] = el.getAttribute(name);
+      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+    el.setAttribute('data-page-repair', '1');
+    registry.set(patch.selector, {
+      attrs: existing ? { ...existing.attrs, ...patch.attrs } : { ...patch.attrs },
+      originals,
+    });
     return true;
   }
 
   function applyPatches(patches) {
     const t0 = performance.now();
-    let applied = 0;
+    const applied = [];
     for (const patch of patches) {
-      if (applyOne(patch)) applied++;
+      if (applyOne(patch)) applied.push(patch);
     }
-    ensureObserver();
     return { applied, total: patches.length, applyMs: performance.now() - t0 };
   }
 
-  // Re-apply patches when the site re-renders. Debounced so a burst of
-  // mutations costs one sweep.
-  function ensureObserver() {
-    if (observer || registry.size === 0) return;
-    let pending = false;
-    observer = new MutationObserver(() => {
-      if (pending) return;
-      pending = true;
-      setTimeout(() => {
-        pending = false;
-        reapplyAll();
-      }, 250);
-    });
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['aria-label', 'aria-level', 'role'],
-    });
-  }
-
-  function reapplyAll() {
-    let reapplied = 0;
-    for (const patch of registry.values()) {
-      const el = document.querySelector(patch.selector);
+  // Restore every patched attribute to its original value (removing ones we
+  // added). Returns how many elements were restored.
+  function undoAll() {
+    let restored = 0;
+    for (const [selector, { attrs, originals }] of registry) {
+      const el = document.querySelector(selector);
       if (!el) continue;
-      for (const [name, value] of Object.entries(patch.attrs)) {
-        if (el.getAttribute(name) !== value) {
-          el.setAttribute(name, value);
-          reapplied++;
+      for (const name of Object.keys(attrs)) {
+        const original = originals[name];
+        if (original === null || original === undefined) {
+          el.removeAttribute(name);
+        } else {
+          el.setAttribute(name, original);
         }
       }
+      el.removeAttribute('data-page-repair');
+      restored++;
     }
-    return reapplied;
+    registry.clear();
+    return restored;
   }
 
   // One polite live region for the post-repair summary. Screen readers
   // announce it without stealing focus or interrupting mid-utterance.
-  function announce(message) {
+  let regionCreatedAt = 0;
+
+  function ensureRegion() {
     let region = document.getElementById('page-repair-status');
     if (!region) {
       region = document.createElement('div');
@@ -86,13 +77,24 @@ const PageRepairApply = (() => {
       region.setAttribute('aria-live', 'polite');
       region.style.cssText =
         'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;';
-      document.body.appendChild(region);
+      (document.body || document.documentElement).appendChild(region);
+      regionCreatedAt = performance.now();
     }
-    // Clear then set so repeat announcements fire.
+    return region;
+  }
+
+  function announce(message) {
+    const region = ensureRegion();
+    // Screen readers drop changes to a live region that entered the DOM in
+    // the same breath — the region must be in the accessibility tree before
+    // its content mutates. Give a just-created region ~300ms to register;
+    // established regions only need clear-then-set so repeats re-fire.
+    const age = performance.now() - regionCreatedAt;
+    const delay = age < 300 ? Math.max(300 - age, 50) : 50;
     region.textContent = '';
     setTimeout(() => {
       region.textContent = message;
-    }, 50);
+    }, delay);
   }
 
   function patchesFromIssues(issues, llmLabels = new Map()) {
@@ -108,14 +110,24 @@ const PageRepairApply = (() => {
       } else if (issue.kind === 'missing-main') {
         patches.push({ selector: issue.selector, attrs: { role: 'main' } });
       } else if (issue.kind === 'unlabeled-control') {
-        const label = llmLabels.get(issue.selector);
-        if (label) {
-          patches.push({ selector: issue.selector, attrs: { 'aria-label': label } });
+        const item = llmLabels.get(issue.selector);
+        if (item) {
+          const attrs = { 'aria-label': item.label };
+          // Provenance lives in aria-description, not the accessible name:
+          // it announces after the name at lower priority, is suppressible
+          // via verbosity settings, stays off braille displays, and doesn't
+          // break voice-control users matching on the name.
+          if (item.unverified) attrs['aria-description'] = 'Auto-labeled, unverified';
+          patches.push({ selector: issue.selector, attrs });
         }
       }
     }
     return patches;
   }
 
-  return { applyPatches, announce, patchesFromIssues, reapplyAll };
+  return { applyPatches, announce, ensureRegion, patchesFromIssues, undoAll };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = PageRepairApply;
+}

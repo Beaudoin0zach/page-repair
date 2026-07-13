@@ -9,11 +9,10 @@
  *
  * Usage:
  *   node test/latency.mjs                # audit-only (no model call)
- *   node test/latency.mjs --llm          # + model call (SDK if ANTHROPIC_API_KEY, else `claude -p` CLI)
+ *   node test/latency.mjs --llm          # + model call (requires ANTHROPIC_API_KEY)
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { parseHTML } from 'linkedom';
 import { createRequire } from 'node:module';
 
@@ -72,21 +71,6 @@ async function labelWithSdk(prompt) {
   return { labels: JSON.parse(text).labels || [], ms, usage: response.usage, backend: 'sdk' };
 }
 
-function labelWithCli(prompt) {
-  const cliPrompt =
-    prompt +
-    `\n\nRespond with ONLY a JSON object: {"labels": [{"selector": "...", "label": "...", "confidence": "high|medium|low"}]}. No other text.`;
-  const t0 = performance.now();
-  const out = execFileSync('claude', ['-p', cliPrompt], {
-    encoding: 'utf8',
-    timeout: 300000,
-  });
-  const ms = performance.now() - t0;
-  const match = out.match(/\{[\s\S]*\}/);
-  const labels = match ? JSON.parse(match[0]).labels || [] : [];
-  return { labels, ms, backend: 'claude-cli (includes CLI startup overhead)' };
-}
-
 const files = readdirSync(FIXTURES_DIR).filter((f) => f.endsWith('.html'));
 console.log(`Fixtures: ${files.join(', ')}\n`);
 
@@ -115,13 +99,16 @@ for (const file of files) {
   }
 
   if (useLlm && unlabeled.length > 0) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.log('  --llm requires ANTHROPIC_API_KEY; skipping model call');
+      console.log('');
+      continue;
+    }
     const batch = unlabeled.slice(0, 40).map((i) => ({ selector: i.selector, context: i.context }));
     const prompt = buildPrompt(batch, document.title || file);
     console.log(`  prompt size: ${(prompt.length / 4).toFixed(0)} tokens (approx)`);
     try {
-      const result = process.env.ANTHROPIC_API_KEY
-        ? await labelWithSdk(prompt)
-        : labelWithCli(prompt);
+      const result = await labelWithSdk(prompt);
       console.log(`  LLM labeling (${result.backend}): ${(result.ms / 1000).toFixed(1)} s for ${batch.length} controls`);
       if (result.usage) console.log(`  usage: ${JSON.stringify(result.usage)}`);
       const byConf = { high: 0, medium: 0, low: 0 };

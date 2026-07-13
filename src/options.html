@@ -6,21 +6,51 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; line-height: 1.5; }
     label { display: block; font-weight: 600; margin-top: 1.25rem; }
-    input, select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-top: 0.25rem; }
-    button { margin-top: 1.5rem; padding: 0.6rem 1.5rem; font-size: 1rem; }
+    input, select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-top: 0.25rem; box-sizing: border-box; }
+    button { margin-top: 0.75rem; padding: 0.6rem 1.5rem; font-size: 1rem; }
+    .reveal { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 400; margin-top: 0.4rem; }
+    .reveal input { width: auto; margin: 0; }
     #status { margin-left: 1rem; }
+    .result { margin-top: 0.5rem; }
+    kbd { border: 1px solid #999; border-radius: 3px; padding: 0 0.3em; font-size: 0.95em; }
   </style>
 </head>
 <body>
   <h1>Page Repair options</h1>
   <p>
-    The extension fixes heading structure and landmarks entirely on your
-    device. Labeling unnamed buttons uses the Anthropic API, which requires an
-    API key. Only the HTML snippets of unnamed controls are sent — never the
+    Heading and landmark repair runs entirely on your device, free, with no
+    setup. Labeling unnamed buttons uses the Anthropic API and needs one of
+    the two options below. Only the HTML snippets of unnamed controls (plus
+    the page title and address, without query strings) are sent — never the
     full page.
   </p>
 
-  <h2>Option A: your own API key</h2>
+  <h2>Keyboard shortcuts</h2>
+  <ul id="shortcuts" aria-live="polite">
+    <li>Loading current shortcuts…</li>
+  </ul>
+  <p>
+    Change them any time at <code>chrome://extensions/shortcuts</code>
+    (copy that address into a new tab — extensions can't link to it).
+  </p>
+
+  <h2>Option A: prepaid credits</h2>
+  <p>
+    No API account needed — labeling runs through the Page Repair service.
+    One credit repairs one page; top up whenever you run out. Prepaid only:
+    nothing renews on its own.
+  </p>
+
+  <label for="proxyToken">Credit token</label>
+  <input type="password" id="proxyToken" autocomplete="off" />
+  <label class="reveal"><input type="checkbox" id="showProxyToken" /> Show token</label>
+  <div>
+    <button id="testProxyToken">Test token</button>
+    <span id="proxyTokenResult" class="result" role="status" aria-live="polite"></span>
+  </div>
+  <p id="creditsRemaining" role="status" aria-live="polite"></p>
+
+  <h2>Option B: your own Anthropic API key</h2>
   <p>
     Calls go directly from your browser to Anthropic. Nothing passes through
     our servers — you can audit exactly what is sent. If both options are
@@ -29,26 +59,19 @@
 
   <label for="apiKey">Anthropic API key</label>
   <input type="password" id="apiKey" autocomplete="off" />
+  <label class="reveal"><input type="checkbox" id="showApiKey" /> Show key</label>
+  <div>
+    <button id="testApiKey">Test key</button>
+    <span id="apiKeyResult" class="result" role="status" aria-live="polite"></span>
+  </div>
 
-  <label for="model">Model</label>
+  <label for="model">Model (Option B only)</label>
   <select id="model">
     <option value="claude-opus-4-8">Claude Opus 4.8 (best labels)</option>
     <option value="claude-haiku-4-5">Claude Haiku 4.5 (fastest)</option>
   </select>
 
-  <h2>Option B: prepaid credits</h2>
-  <p>
-    No API account needed — labeling runs through the Page Repair service.
-    One credit repairs one page; top up whenever you run out. No
-    subscription, nothing renews on its own.
-  </p>
-
-  <label for="proxyToken">Credit token</label>
-  <input type="password" id="proxyToken" autocomplete="off" />
-
-  <label for="proxyUrl">Service URL (leave blank for the default)</label>
-  <input type="url" id="proxyUrl" placeholder="https://page-repair-proxy.airboat-webcast-5u.workers.dev" />
-
+  <hr style="margin-top:2rem" />
   <button id="save">Save</button><span id="status" role="status" aria-live="polite"></span>
 
   <script src="options.js"></script>

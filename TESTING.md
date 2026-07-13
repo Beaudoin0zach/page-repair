@@ -22,9 +22,10 @@ Setup is about five minutes and fully keyboard-accessible.
 1. On the extensions page, find Page Repair and open "Details", then
    "Extension options" (or right-click/context-menu the toolbar icon and
    choose Options).
-2. Skip to the "Prepaid credits" section (heading level 2).
+2. Skip to the "Option A: prepaid credits" section (heading level 2).
 3. Paste the token that came with this guide into "Credit token".
-4. Leave "Service URL" blank.
+4. Activate "Test token" — you should hear "Token works. 100 credits
+   remaining."
 5. Activate Save. You should hear "Saved."
 
 Your token has 100 credits. One credit repairs one page. Heading and
@@ -42,8 +43,19 @@ and a few seconds later:
 "Page repair complete: labeled 12 of 12 controls."
 
 The page itself is never reloaded, focus never moves, and nothing changes
-visually. Labels the AI was unsure about are announced with
-"auto-labeled, unverified" so you always know what is machine-guessed.
+visually. Labels the AI was unsure about carry an "auto-labeled,
+unverified" note spoken *after* the label (as a description, so it stays
+out of braille and doesn't break voice control) — you always know what is
+machine-guessed, and the completion announcement tells you how many were.
+
+Two more shortcuts:
+
+- **Alt+Shift+U** (Option+Shift+U on Mac) undoes every repair and restores
+  the page exactly as it was — try it if a fix ever feels wrong.
+- A third command copies an accessibility report about the page to your
+  clipboard (findings with WCAG references), for you to paste into an email
+  or the site's feedback form if you want to tell them. It has no default
+  key — assign one at `chrome://extensions/shortcuts` if you want it.
 
 A good first test: news.ycombinator.com — the voting arrows are unnamed
 links on the real site; after repair they should read "Upvote story".
