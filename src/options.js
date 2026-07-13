@@ -20,6 +20,7 @@ chrome.commands.getAll().then((commands) => {
   const list = $('shortcuts');
   list.textContent = '';
   for (const c of commands) {
+    if (!c.description) continue; // built-in _execute_action has none
     const li = document.createElement('li');
     if (c.shortcut) {
       const kbd = document.createElement('kbd');
