@@ -25,7 +25,7 @@ this field; the listing cannot be submitted as written.
 - GitHub Pages is **not** enabled on the repo (404 from the pages API).
 - The marketing site `beau-access-solutions` already ships
   `src/pages/apps/page-repair.astro` (203 lines) with a "What gets sent, and
-  when" section at line 160 — a privacy summary, not the policy itself. Site is
+  when" section at line 164 — a privacy summary, not the policy itself. Site is
   `https://beauaccesssolutions.com`, static Astro on Netlify.
 
 **Recommendation: host it on the marketing site, at
@@ -42,7 +42,7 @@ already has a privacy-shaped section on the same page.
 - New file `beau-access-solutions/src/pages/apps/page-repair/privacy.astro`,
   using `BaseLayout.astro`, porting `PRIVACY.md` verbatim in content.
 - Add a "Full privacy policy" link from the existing privacy section at
-  `src/pages/apps/page-repair.astro:160`.
+  `src/pages/apps/page-repair.astro:164`.
 - Decide the source of truth: I recommend the Astro page becomes canonical and
   `page-repair/PRIVACY.md` gains a one-line pointer to the live URL, rather than
   maintaining two copies that will drift.
@@ -75,7 +75,7 @@ live and public) and treat the marketing-site page as fast-follow. 2 min.
 
 The last thing a reader carries out of the description is a billing footnote.
 The strongest material in the whole listing — the overlay inversion — is buried
-as a section header at line 34.
+as a section header at line 35.
 
 **Proposed change:** move the billing paragraph up to sit directly after the
 three capability bullets (i.e. after line 33, before "What makes it different
@@ -97,7 +97,7 @@ strongest paragraph.
 
 ### 3. `STORE_LISTING.md:12` — the 132-char summary leads with mechanism
 
-**Verified.** Current (121 chars):
+**Verified.** Current (123 chars):
 
 > Fixes broken pages for screen reader users: labels unlabeled controls, repairs
 > headings and landmarks. Always user-invoked.
@@ -105,13 +105,13 @@ strongest paragraph.
 The person appears as a prepositional object; the colon hands the rest of the
 field to a feature list. Options, all within 132:
 
-**A (recommended, 128 chars)** — leads with the reader, keeps the differentiator:
+**A (recommended, 107 chars)** — leads with the reader, keeps the differentiator:
 ```
-You press a key; the page gets usable. Names unlabeled buttons, fixes headings
-and landmarks. Never runs on its own.
+You press a key; unlabeled buttons get real names. Fixes headings and landmarks
+too. Never runs on its own.
 ```
 
-**B (124 chars)** — leads with the grievance:
+**B (109 chars)** — leads with the grievance:
 ```
 The button your screen reader calls "button" gets a real name. Headings and
 landmarks too. Only when you ask.
@@ -180,12 +180,15 @@ grounding" bullet list, before "Design rules":
 
 ```markdown
 None of this is why the extension exists. It exists because vote arrows on
-Hacker News are 31 unlabeled controls, and the fix — a name, on each one —
-takes four milliseconds and nobody has shipped it.
+Hacker News are 31 unlabeled controls, finding every one takes under four
+milliseconds, and the fix — a name, on each — is one nobody has shipped.
 ```
 
-That number is already in the repo's own measurements table
-(`README.md`, "Measured"), so it's a claim the document can back. It converts
+Both numbers are already in the repo's own measurements table
+(`README.md`, "Measured": 31 controls, 3.9 ms in the *Audit* column), so
+it's a claim the document can back. Note the four milliseconds is the audit
+time — the cost of *finding* the controls, not of applying the names — so the
+sentence must not present it as the repair time. It converts
 the whole research section from citation-stacking to evidence in service of a
 position someone holds.
 
